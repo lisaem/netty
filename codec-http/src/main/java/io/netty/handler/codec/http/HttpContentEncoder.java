@@ -19,6 +19,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufHolder;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.handler.codec.DecoderResult;
 import io.netty.handler.codec.MessageToMessageCodec;
 import io.netty.util.ReferenceCountUtil;
 
@@ -77,10 +78,10 @@ public abstract class HttpContentEncoder extends MessageToMessageCodec<HttpReque
             acceptedEncoding = HttpContentDecoder.IDENTITY;
         }
 
-        HttpMethod meth = msg.method();
-        if (meth == HttpMethod.HEAD) {
+        HttpMethod method = msg.method();
+        if (HttpMethod.HEAD.equals(method)) {
             acceptedEncoding = ZERO_LENGTH_HEAD;
-        } else if (meth == HttpMethod.CONNECT) {
+        } else if (HttpMethod.CONNECT.equals(method)) {
             acceptedEncoding = ZERO_LENGTH_CONNECT;
         }
 
@@ -136,7 +137,7 @@ public abstract class HttpContentEncoder extends MessageToMessageCodec<HttpReque
                 }
 
                 if (isFull) {
-                    // Pass through the full response with empty content and continue waiting for the the next resp.
+                    // Pass through the full response with empty content and continue waiting for the next resp.
                     if (!((ByteBufHolder) res).content().isReadable()) {
                         out.add(ReferenceCountUtil.retain(res));
                         break;
@@ -264,7 +265,7 @@ public abstract class HttpContentEncoder extends MessageToMessageCodec<HttpReque
             if (headers.isEmpty()) {
                 out.add(LastHttpContent.EMPTY_LAST_CONTENT);
             } else {
-                out.add(new ComposedLastHttpContent(headers));
+                out.add(new ComposedLastHttpContent(headers, DecoderResult.SUCCESS));
             }
             return true;
         }
@@ -289,31 +290,31 @@ public abstract class HttpContentEncoder extends MessageToMessageCodec<HttpReque
 
     @Override
     public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
-        cleanup();
+        cleanupSafely(ctx);
         super.handlerRemoved(ctx);
     }
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        cleanup();
+        cleanupSafely(ctx);
         super.channelInactive(ctx);
     }
 
     private void cleanup() {
         if (encoder != null) {
             // Clean-up the previous encoder if not cleaned up correctly.
-            if (encoder.finish()) {
-                for (;;) {
-                    ByteBuf buf = encoder.readOutbound();
-                    if (buf == null) {
-                        break;
-                    }
-                    // Release the buffer
-                    // https://github.com/netty/netty/issues/1524
-                    buf.release();
-                }
-            }
+            encoder.finishAndReleaseAll();
             encoder = null;
+        }
+    }
+
+    private void cleanupSafely(ChannelHandlerContext ctx) {
+        try {
+            cleanup();
+        } catch (Throwable cause) {
+            // If cleanup throws any error we need to propagate it through the pipeline
+            // so we don't fail to propagate pipeline events.
+            ctx.fireExceptionCaught(cause);
         }
     }
 

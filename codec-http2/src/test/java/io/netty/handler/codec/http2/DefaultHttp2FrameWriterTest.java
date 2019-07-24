@@ -15,6 +15,7 @@
 package io.netty.handler.codec.http2;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.Channel;
@@ -37,7 +38,6 @@ import java.io.IOException;
 import java.util.Arrays;
 
 import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 /**
@@ -66,16 +66,17 @@ public class DefaultHttp2FrameWriterTest {
     @Before
     public void setUp() throws Exception {
         MockitoAnnotations.initMocks(this);
+        http2HeadersEncoder = new DefaultHttp2HeadersEncoder(
+                Http2HeadersEncoder.NEVER_SENSITIVE, new HpackEncoder(false, 16, 0));
 
-        frameWriter = new DefaultHttp2FrameWriter();
+        frameWriter = new DefaultHttp2FrameWriter(new DefaultHttp2HeadersEncoder(
+                Http2HeadersEncoder.NEVER_SENSITIVE, new HpackEncoder(false, 16, 0)));
 
         outbound = Unpooled.buffer();
 
         expectedOutbound = Unpooled.EMPTY_BUFFER;
 
         promise = new DefaultChannelPromise(channel, ImmediateEventExecutor.INSTANCE);
-
-        http2HeadersEncoder = new DefaultHttp2HeadersEncoder();
 
         Answer<Object> answer = new Answer<Object>() {
             @Override
@@ -265,7 +266,7 @@ public class DefaultHttp2FrameWriterTest {
         }
     }
 
-    private Http2Headers dummyHeaders(Http2Headers headers, int times) {
+    private static Http2Headers dummyHeaders(Http2Headers headers, int times) {
         final String largeValue = repeat("dummy-value", 100);
         for (int i = 0; i < times; i++) {
             headers.add(String.format("dummy-%d", i), largeValue);
@@ -273,7 +274,7 @@ public class DefaultHttp2FrameWriterTest {
         return headers;
     }
 
-    private String repeat(String str, int count) {
+    private static String repeat(String str, int count) {
         return String.format(String.format("%%%ds", count), " ").replace(" ", str);
     }
 }

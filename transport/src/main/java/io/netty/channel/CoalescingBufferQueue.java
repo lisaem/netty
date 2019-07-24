@@ -40,7 +40,11 @@ public final class CoalescingBufferQueue extends AbstractCoalescingBufferQueue {
     }
 
     public CoalescingBufferQueue(Channel channel, int initSize) {
-        super(initSize);
+        this(channel, initSize, false);
+    }
+
+    public CoalescingBufferQueue(Channel channel, int initSize, boolean updateWritability) {
+        super(updateWritability ? channel : null, initSize);
         this.channel = ObjectUtil.checkNotNull(channel, "channel");
     }
 
@@ -72,12 +76,7 @@ public final class CoalescingBufferQueue extends AbstractCoalescingBufferQueue {
             composite.addComponent(true, next);
             return composite;
         }
-        // Create a composite buffer to accumulate this pair and potentially all the buffers
-        // in the queue. Using +2 as we have already dequeued current and next.
-        CompositeByteBuf composite = alloc.compositeBuffer(size() + 2);
-        composite.addComponent(true, cumulation);
-        composite.addComponent(true, next);
-        return composite;
+        return composeIntoComposite(alloc, cumulation, next);
     }
 
     @Override

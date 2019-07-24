@@ -18,7 +18,6 @@ package io.netty.channel;
 import io.netty.util.Recycler;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.PromiseCombiner;
-import io.netty.util.internal.ObjectUtil;
 import io.netty.util.internal.SystemPropertyUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
@@ -38,7 +37,7 @@ public final class PendingWriteQueue {
             SystemPropertyUtil.getInt("io.netty.transport.pendingWriteSizeOverhead", 64);
 
     private final ChannelHandlerContext ctx;
-    private final PendingTracker tracker;
+    private final PendingBytesTracker tracker;
 
     // head and tail pointers for the linked-list structure. If empty head and tail are null.
     private PendingWrite head;
@@ -46,80 +45,9 @@ public final class PendingWriteQueue {
     private int size;
     private long bytes;
 
-    private interface PendingTracker extends MessageSizeEstimator.Handle {
-        void incrementPendingOutboundBytes(long bytes);
-        void decrementPendingOutboundBytes(long bytes);
-    }
-
     public PendingWriteQueue(ChannelHandlerContext ctx) {
-        this.ctx = ObjectUtil.checkNotNull(ctx, "ctx");
-        if (ctx.pipeline() instanceof DefaultChannelPipeline) {
-            final DefaultChannelPipeline pipeline = (DefaultChannelPipeline) ctx.pipeline();
-            tracker = new PendingTracker() {
-                @Override
-                public void incrementPendingOutboundBytes(long bytes) {
-                    pipeline.incrementPendingOutboundBytes(bytes);
-                }
-
-                @Override
-                public void decrementPendingOutboundBytes(long bytes) {
-                    pipeline.decrementPendingOutboundBytes(bytes);
-                }
-
-                @Override
-                public int size(Object msg) {
-                    return pipeline.estimatorHandle().size(msg);
-                }
-            };
-        } else {
-            final MessageSizeEstimator.Handle estimator = ctx.channel().config().getMessageSizeEstimator().newHandle();
-            final ChannelOutboundBuffer buffer = ctx.channel().unsafe().outboundBuffer();
-            if (buffer == null) {
-                tracker = new PendingTracker() {
-                    @Override
-                    public void incrementPendingOutboundBytes(long bytes) {
-                        // noop
-                    }
-
-                    @Override
-                    public void decrementPendingOutboundBytes(long bytes) {
-                        // noop
-                    }
-
-                    @Override
-                    public int size(Object msg) {
-                        return estimator.size(msg);
-                    }
-                };
-            } else {
-                tracker = new PendingTracker() {
-                    @Override
-                    public void incrementPendingOutboundBytes(long bytes) {
-                        // We need to guard against null as channel.unsafe().outboundBuffer() may returned null
-                        // if the channel was already closed when constructing the PendingWriteQueue.
-                        // See https://github.com/netty/netty/issues/3967
-                        if (buffer != null) {
-                            buffer.incrementPendingOutboundBytes(bytes);
-                        }
-                    }
-
-                    @Override
-                    public void decrementPendingOutboundBytes(long bytes) {
-                        // We need to guard against null as channel.unsafe().outboundBuffer() may returned null
-                        // if the channel was already closed when constructing the PendingWriteQueue.
-                        // See https://github.com/netty/netty/issues/3967
-                        if (buffer != null) {
-                            buffer.decrementPendingOutboundBytes(bytes);
-                        }
-                    }
-
-                    @Override
-                    public int size(Object msg) {
-                        return estimator.size(msg);
-                    }
-                };
-            }
-        }
+        tracker = PendingBytesTracker.newTracker(ctx.channel());
+        this.ctx = ctx;
     }
 
     /**
@@ -201,7 +129,7 @@ public final class PendingWriteQueue {
         }
 
         ChannelPromise p = ctx.newPromise();
-        PromiseCombiner combiner = new PromiseCombiner();
+        PromiseCombiner combiner = new PromiseCombiner(ctx.executor());
         try {
             // It is possible for some of the written promises to trigger more writes. The new writes
             // will "revive" the queue, so we need to write them up until the queue is empty.
@@ -215,7 +143,9 @@ public final class PendingWriteQueue {
                     Object msg = write.msg;
                     ChannelPromise promise = write.promise;
                     recycle(write, false);
-                    combiner.add(promise);
+                    if (!(promise instanceof VoidChannelPromise)) {
+                        combiner.add(promise);
+                    }
                     ctx.write(msg, promise);
                     write = next;
                 }

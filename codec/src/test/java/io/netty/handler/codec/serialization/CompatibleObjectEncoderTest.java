@@ -26,7 +26,6 @@ import java.io.Serializable;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 
 public class CompatibleObjectEncoderTest {
     @Test
@@ -53,6 +52,8 @@ public class CompatibleObjectEncoderTest {
     }
 
     private static final class TestSerializable implements Serializable {
+        private static final long serialVersionUID = 2235771472534930360L;
+
         public final int x;
         public final int y;
 

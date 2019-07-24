@@ -43,7 +43,8 @@ public class Http2ClientUpgradeCodecTest {
 
     @Test
     public void testUpgradeToHttp2MultiplexCodec() throws Exception {
-        testUpgrade(Http2MultiplexCodecBuilder.forClient(new HttpInboundHandler()).build());
+        testUpgrade(Http2MultiplexCodecBuilder.forClient(new HttpInboundHandler())
+            .withUpgradeStreamHandler(new ChannelInboundHandlerAdapter()).build());
     }
 
     private static void testUpgrade(Http2ConnectionHandler handler) throws Exception {
